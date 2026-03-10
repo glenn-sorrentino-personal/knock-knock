@@ -18,6 +18,12 @@
     #signatureCanvas { border: 1px solid #333; width: 400px; height: 150px; touch-action: none; }
     video, #photoPreview { width: 280px; height: 210px; border: 1px solid #333; object-fit: cover; }
     .hidden { display: none; }
+    .checklist { background: #f5f7fa; border: 1px solid #d0d7de; border-radius: 8px; padding: 10px 12px; margin: 12px 0 18px; max-width: 760px; }
+    .checklist ul { margin: 8px 0 0 18px; padding: 0; }
+    .checklist li { margin: 4px 0; }
+    .checklist .ok { color: #166534; }
+    .checklist .missing { color: #9a3412; }
+    button[disabled] { opacity: 0.6; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -98,11 +104,17 @@
     <fieldset>
       <legend>Signature & Certification</legend>
       <p>Certification: I certify under penalty of perjury that the declarations above are true and accurate to the best of my knowledge.</p>
+      <label><input type="checkbox" required name="certificationAccepted" /> I affirm this certification statement is true.</label>
       <canvas id="signatureCanvas" width="400" height="150"></canvas><br />
       <button type="button" id="clearSignature">Clear Signature</button>
     </fieldset>
 
-    <button type="submit">Generate Artifact</button>
+    <fieldset>
+      <legend>Completion Checks</legend>
+      <div class="checklist" id="completionChecklist"></div>
+    </fieldset>
+
+    <button type="submit" id="submitButton" disabled>Generate Artifact</button>
   </form>
 
   <section id="resultSection" class="hidden">
@@ -121,6 +133,8 @@
     const summaryLine = document.getElementById('summaryLine');
     const rationaleLine = document.getElementById('rationaleLine');
     const downloadButton = document.getElementById('downloadArtifact');
+    const submitButton = document.getElementById('submitButton');
+    const completionChecklist = document.getElementById('completionChecklist');
 
     const cameraVideo = document.getElementById('camera');
     const startCameraButton = document.getElementById('startCamera');
@@ -137,6 +151,37 @@
     let latestArtifact = null;
     let isDrawing = false;
     let hasSignature = false;
+
+    function allBinaryAnswered() {
+      const names = [
+        'hasWarrant',
+        'hasCourtOrder',
+        'isDetained',
+        'isSuspectOrTarget',
+        'requestsConsentSearch',
+        'claimsExigent'
+      ];
+      return names.every(name => !!form.querySelector(`input[name="${name}"]:checked`));
+    }
+
+    function updateCompletionState() {
+      const fieldValidityOk = form.checkValidity();
+      const binaryOk = allBinaryAnswered();
+      const photoOk = !!capturedPhotoDataUrl;
+      const signatureOk = hasSignature;
+      const canSubmit = fieldValidityOk && binaryOk && photoOk && signatureOk;
+
+      submitButton.disabled = !canSubmit;
+      completionChecklist.innerHTML = `
+        <strong>Declaration status: ${canSubmit ? 'Ready for artifact generation' : 'Incomplete (Pending)'}</strong>
+        <ul>
+          <li class="${fieldValidityOk ? 'ok' : 'missing'}">${fieldValidityOk ? '✓' : '✕'} Required text/contact/request fields completed.</li>
+          <li class="${binaryOk ? 'ok' : 'missing'}">${binaryOk ? '✓' : '✕'} All binary declarations answered (Yes/No).</li>
+          <li class="${photoOk ? 'ok' : 'missing'}">${photoOk ? '✓' : '✕'} Officer photo captured.</li>
+          <li class="${signatureOk ? 'ok' : 'missing'}">${signatureOk ? '✓' : '✕'} Officer signature captured.</li>
+        </ul>
+      `;
+    }
 
     startCameraButton.addEventListener('click', async () => {
       try {
@@ -157,6 +202,7 @@
       ctx.drawImage(cameraVideo, 0, 0, photoCanvas.width, photoCanvas.height);
       capturedPhotoDataUrl = photoCanvas.toDataURL('image/png');
       photoPreview.src = capturedPhotoDataUrl;
+      updateCompletionState();
     });
 
     function pointerPos(e) {
@@ -181,6 +227,7 @@
       sigCtx.lineTo(x, y);
       sigCtx.stroke();
       hasSignature = true;
+      updateCompletionState();
       e.preventDefault();
     }
     function drawEnd() { isDrawing = false; }
@@ -195,6 +242,7 @@
     clearSignature.addEventListener('click', () => {
       sigCtx.clearRect(0, 0, signatureCanvas.width, signatureCanvas.height);
       hasSignature = false;
+      updateCompletionState();
     });
 
     function getRadioBool(name) {
@@ -260,7 +308,8 @@
           legalBasis: formData.get('legalBasis')
         },
         binaryDeclarations: declarations,
-        certificationStatement: 'I certify under penalty of perjury that the declarations above are true and accurate to the best of my knowledge.'
+        certificationStatement: 'I certify under penalty of perjury that the declarations above are true and accurate to the best of my knowledge.',
+        certificationAccepted: formData.get('certificationAccepted') === 'on'
       };
 
       const canonicalPayloadObj = canonicalize(declarationPayload);
@@ -319,7 +368,12 @@
         : 'Rationale: No triggering declarations (warrant, court order, detention, suspect/target) were claimed.';
 
       resultSection.classList.remove('hidden');
+      updateCompletionState();
     });
+
+    form.addEventListener('input', updateCompletionState);
+    form.addEventListener('change', updateCompletionState);
+    updateCompletionState();
 
     downloadButton.addEventListener('click', () => {
       if (!latestArtifact) return;
