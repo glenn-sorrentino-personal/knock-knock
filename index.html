@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Law Enforcement Request Declaration</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; line-height: 1.4; }
+    fieldset { margin-bottom: 16px; }
+    label { display: block; margin-top: 8px; }
+    input[type="text"], input[type="email"], input[type="datetime-local"], textarea { width: 100%; max-width: 700px; padding: 6px; }
+    .inline { display: inline-block; margin-right: 12px; }
+    .status { padding: 12px; border-radius: 8px; margin-bottom: 16px; }
+    .pending { background: #fff4cc; }
+    .complete { background: #dff5e5; }
+    .decision-yes { color: #a40000; font-weight: bold; }
+    .decision-no { color: #006400; font-weight: bold; }
+    #signatureCanvas { border: 1px solid #333; width: 400px; height: 150px; touch-action: none; }
+    video, #photoPreview { width: 280px; height: 210px; border: 1px solid #333; object-fit: cover; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <h1>Law Enforcement Request Declaration</h1>
+  <div id="statusBox" class="status pending">
+    <strong>Status:</strong> Pending — declaration incomplete.
+  </div>
+
+  <form id="declarationForm">
+    <fieldset>
+      <legend>Officer Identity</legend>
+      <label>Officer full name <input required name="officerFullName" type="text" /></label>
+      <label>Badge number <input required name="badgeNumber" type="text" /></label>
+      <label>Agency <input required name="agency" type="text" /></label>
+      <label>Unit or division <input required name="unitDivision" type="text" /></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Command Structure</legend>
+      <label>Commanding officer name <input required name="commandingOfficerName" type="text" /></label>
+      <label>Commanding officer title <input required name="commandingOfficerTitle" type="text" /></label>
+      <label>Commanding officer phone <input required name="commandingOfficerPhone" type="text" /></label>
+      <label>Commanding officer email <input required name="commandingOfficerEmail" type="email" /></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Request Details</legend>
+      <label>Case or incident number <input required name="caseNumber" type="text" /></label>
+      <label>Request timestamp <input required name="requestTimestamp" type="datetime-local" /></label>
+      <label>Requested material or action <textarea required name="requestedMaterial"></textarea></label>
+      <label>Officer statement of legal basis <textarea required name="legalBasis"></textarea></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Binary Legal Declarations (Yes/No required)</legend>
+      <div>
+        <p>1) Signed warrant authorizing requested access/disclosure?</p>
+        <label class="inline"><input required type="radio" name="hasWarrant" value="yes" /> Yes</label>
+        <label class="inline"><input required type="radio" name="hasWarrant" value="no" /> No</label>
+      </div>
+      <div>
+        <p>2) Subpoena or court order covering requested material?</p>
+        <label class="inline"><input required type="radio" name="hasCourtOrder" value="yes" /> Yes</label>
+        <label class="inline"><input required type="radio" name="hasCourtOrder" value="no" /> No</label>
+      </div>
+      <div>
+        <p>3) Resident detained / not free to end interaction?</p>
+        <label class="inline"><input required type="radio" name="isDetained" value="yes" /> Yes</label>
+        <label class="inline"><input required type="radio" name="isDetained" value="no" /> No</label>
+      </div>
+      <div>
+        <p>4) Resident is suspect or target in criminal investigation?</p>
+        <label class="inline"><input required type="radio" name="isSuspectOrTarget" value="yes" /> Yes</label>
+        <label class="inline"><input required type="radio" name="isSuspectOrTarget" value="no" /> No</label>
+      </div>
+      <div>
+        <p>5) Requesting consent to search property/devices/recordings?</p>
+        <label class="inline"><input required type="radio" name="requestsConsentSearch" value="yes" /> Yes</label>
+        <label class="inline"><input required type="radio" name="requestsConsentSearch" value="no" /> No</label>
+      </div>
+      <div>
+        <p>6) Claiming exigent circumstances or active emergency?</p>
+        <label class="inline"><input required type="radio" name="claimsExigent" value="yes" /> Yes</label>
+        <label class="inline"><input required type="radio" name="claimsExigent" value="no" /> No</label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Officer Photo</legend>
+      <button type="button" id="startCamera">Start Camera</button>
+      <button type="button" id="capturePhoto">Capture Photo</button>
+      <br />
+      <video id="camera" autoplay playsinline class="hidden"></video>
+      <img id="photoPreview" alt="Captured officer photo" />
+      <canvas id="photoCanvas" class="hidden" width="280" height="210"></canvas>
+    </fieldset>
+
+    <fieldset>
+      <legend>Signature & Certification</legend>
+      <p>Certification: I certify under penalty of perjury that the declarations above are true and accurate to the best of my knowledge.</p>
+      <canvas id="signatureCanvas" width="400" height="150"></canvas><br />
+      <button type="button" id="clearSignature">Clear Signature</button>
+    </fieldset>
+
+    <button type="submit">Generate Artifact</button>
+  </form>
+
+  <section id="resultSection" class="hidden">
+    <h2>Resident-Facing Decision</h2>
+    <p id="decisionLine"></p>
+    <p id="summaryLine"></p>
+    <p id="rationaleLine"></p>
+    <button id="downloadArtifact" type="button">Download Artifact JSON</button>
+  </section>
+
+  <script>
+    const form = document.getElementById('declarationForm');
+    const statusBox = document.getElementById('statusBox');
+    const resultSection = document.getElementById('resultSection');
+    const decisionLine = document.getElementById('decisionLine');
+    const summaryLine = document.getElementById('summaryLine');
+    const rationaleLine = document.getElementById('rationaleLine');
+    const downloadButton = document.getElementById('downloadArtifact');
+
+    const cameraVideo = document.getElementById('camera');
+    const startCameraButton = document.getElementById('startCamera');
+    const capturePhotoButton = document.getElementById('capturePhoto');
+    const photoCanvas = document.getElementById('photoCanvas');
+    const photoPreview = document.getElementById('photoPreview');
+
+    const signatureCanvas = document.getElementById('signatureCanvas');
+    const clearSignature = document.getElementById('clearSignature');
+    const sigCtx = signatureCanvas.getContext('2d');
+
+    let mediaStream;
+    let capturedPhotoDataUrl = '';
+    let latestArtifact = null;
+    let isDrawing = false;
+    let hasSignature = false;
+
+    startCameraButton.addEventListener('click', async () => {
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        cameraVideo.srcObject = mediaStream;
+        cameraVideo.classList.remove('hidden');
+      } catch (err) {
+        alert('Unable to access camera.');
+      }
+    });
+
+    capturePhotoButton.addEventListener('click', () => {
+      if (!cameraVideo.srcObject) {
+        alert('Start camera before capture.');
+        return;
+      }
+      const ctx = photoCanvas.getContext('2d');
+      ctx.drawImage(cameraVideo, 0, 0, photoCanvas.width, photoCanvas.height);
+      capturedPhotoDataUrl = photoCanvas.toDataURL('image/png');
+      photoPreview.src = capturedPhotoDataUrl;
+    });
+
+    function pointerPos(e) {
+      const rect = signatureCanvas.getBoundingClientRect();
+      const point = e.touches ? e.touches[0] : e;
+      return { x: point.clientX - rect.left, y: point.clientY - rect.top };
+    }
+
+    function drawStart(e) {
+      isDrawing = true;
+      const { x, y } = pointerPos(e);
+      sigCtx.beginPath();
+      sigCtx.moveTo(x, y);
+      e.preventDefault();
+    }
+    function drawMove(e) {
+      if (!isDrawing) return;
+      const { x, y } = pointerPos(e);
+      sigCtx.lineWidth = 2;
+      sigCtx.lineCap = 'round';
+      sigCtx.strokeStyle = '#000';
+      sigCtx.lineTo(x, y);
+      sigCtx.stroke();
+      hasSignature = true;
+      e.preventDefault();
+    }
+    function drawEnd() { isDrawing = false; }
+
+    signatureCanvas.addEventListener('mousedown', drawStart);
+    signatureCanvas.addEventListener('mousemove', drawMove);
+    window.addEventListener('mouseup', drawEnd);
+    signatureCanvas.addEventListener('touchstart', drawStart, { passive: false });
+    signatureCanvas.addEventListener('touchmove', drawMove, { passive: false });
+    window.addEventListener('touchend', drawEnd);
+
+    clearSignature.addEventListener('click', () => {
+      sigCtx.clearRect(0, 0, signatureCanvas.width, signatureCanvas.height);
+      hasSignature = false;
+    });
+
+    function getRadioBool(name) {
+      return form.querySelector(`input[name="${name}"]:checked`)?.value === 'yes';
+    }
+
+    function computeDecision(declarations) {
+      const triggerReasons = [];
+      if (declarations.hasWarrant) triggerReasons.push('Signed warrant declared');
+      if (declarations.hasCourtOrder) triggerReasons.push('Subpoena/court order declared');
+      if (declarations.isDetained) triggerReasons.push('Resident declared detained/not free to leave');
+      if (declarations.isSuspectOrTarget) triggerReasons.push('Resident declared suspect/target');
+
+      const result = triggerReasons.length > 0 ? 'YES' : 'NO';
+      return { result, triggerReasons };
+    }
+
+    function canonicalize(value) {
+      if (Array.isArray(value)) return value.map(canonicalize);
+      if (value && typeof value === 'object') {
+        return Object.keys(value).sort().reduce((acc, key) => {
+          acc[key] = canonicalize(value[key]);
+          return acc;
+        }, {});
+      }
+      return value;
+    }
+
+    async function sha256Hex(input) {
+      const data = new TextEncoder().encode(input);
+      const digest = await crypto.subtle.digest('SHA-256', data);
+      return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function buildArtifact(formData) {
+      const declarations = {
+        hasWarrant: getRadioBool('hasWarrant'),
+        hasCourtOrder: getRadioBool('hasCourtOrder'),
+        isDetained: getRadioBool('isDetained'),
+        isSuspectOrTarget: getRadioBool('isSuspectOrTarget'),
+        requestsConsentSearch: getRadioBool('requestsConsentSearch'),
+        claimsExigent: getRadioBool('claimsExigent')
+      };
+
+      const decision = computeDecision(declarations);
+      const declarationPayload = {
+        officerIdentity: {
+          officerFullName: formData.get('officerFullName'),
+          badgeNumber: formData.get('badgeNumber'),
+          agency: formData.get('agency'),
+          unitDivision: formData.get('unitDivision')
+        },
+        commandStructure: {
+          commandingOfficerName: formData.get('commandingOfficerName'),
+          commandingOfficerTitle: formData.get('commandingOfficerTitle'),
+          commandingOfficerPhone: formData.get('commandingOfficerPhone'),
+          commandingOfficerEmail: formData.get('commandingOfficerEmail')
+        },
+        requestDetails: {
+          caseNumber: formData.get('caseNumber'),
+          requestTimestamp: formData.get('requestTimestamp'),
+          requestedMaterial: formData.get('requestedMaterial'),
+          legalBasis: formData.get('legalBasis')
+        },
+        binaryDeclarations: declarations,
+        certificationStatement: 'I certify under penalty of perjury that the declarations above are true and accurate to the best of my knowledge.'
+      };
+
+      const canonicalPayloadObj = canonicalize(declarationPayload);
+      const canonicalPayloadJson = JSON.stringify(canonicalPayloadObj);
+      const payloadSha256 = await sha256Hex(canonicalPayloadJson);
+
+      const artifactId = `artifact-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+      const artifact = {
+        artifactId,
+        submittedAt: new Date().toISOString(),
+        browserUserAgent: navigator.userAgent,
+        decision,
+        declarationPayload: canonicalPayloadObj,
+        payloadSha256,
+        evidence: {
+          officerPhotoPngDataUrl: capturedPhotoDataUrl,
+          signaturePngDataUrl: signatureCanvas.toDataURL('image/png')
+        }
+      };
+
+      const artifactCanonical = JSON.stringify(canonicalize(artifact));
+      artifact.artifactSha256 = await sha256Hex(artifactCanonical);
+      return artifact;
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+      }
+      if (!capturedPhotoDataUrl) {
+        alert('Officer photo is required.');
+        return;
+      }
+      if (!hasSignature) {
+        alert('Signature is required.');
+        return;
+      }
+
+      const artifact = await buildArtifact(new FormData(form));
+      latestArtifact = artifact;
+
+      statusBox.className = 'status complete';
+      statusBox.innerHTML = '<strong>Status:</strong> Complete — declaration submitted.';
+
+      const yes = artifact.decision.result === 'YES';
+      decisionLine.className = yes ? 'decision-yes' : 'decision-no';
+      decisionLine.textContent = `Final Decision: ${artifact.decision.result}`;
+      summaryLine.textContent = yes
+        ? 'Resident should not answer substantive questions and should require formal legal process or counsel.'
+        : 'Declaration does not claim compulsory legal authority or custodial conditions on its face.';
+
+      rationaleLine.textContent = artifact.decision.triggerReasons.length
+        ? `Rationale: ${artifact.decision.triggerReasons.join('; ')}`
+        : 'Rationale: No triggering declarations (warrant, court order, detention, suspect/target) were claimed.';
+
+      resultSection.classList.remove('hidden');
+    });
+
+    downloadButton.addEventListener('click', () => {
+      if (!latestArtifact) return;
+      const blob = new Blob([JSON.stringify(latestArtifact, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${latestArtifact.artifactId}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  </script>
+</body>
+</html>
